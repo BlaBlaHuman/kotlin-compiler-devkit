@@ -46,6 +46,9 @@
         <psi.referenceContributor implementation="org.jetbrains.kotlin.test.helper.reference.DirectiveReferenceContributor"
                                   language="kotlin"/>
 
+        <psi.referenceContributor implementation="org.jetbrains.kotlin.test.helper.reference.ReportedErrorReferenceContributor"
+                                  language="kotlin"/>
+
         <completion.contributor language="kotlin" implementationClass="org.jetbrains.kotlin.test.helper.completion.CommentDirectiveCompletionContributor"/>
 
         <executor implementation="org.jetbrains.kotlin.test.helper.executor.RunAndApplyDiffsExecutor"/>

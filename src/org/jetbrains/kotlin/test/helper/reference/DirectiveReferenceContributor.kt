@@ -40,12 +40,17 @@ class DirectiveReferenceContributor : PsiReferenceContributor() {
                                 featuresRange.first + valueRange.first,
                                 featuresRange.first + valueRange.last + 1,
                             )
-                            val enumType: EnumClassProvider = if (name == "LANGUAGE") {
+                            val enumType: ClassProvider = if (name == "LANGUAGE") {
                                 ::getLanguageFeatureClasses
                             } else {
                                 { getEnumClassesByDirective(name, it) }
                             }
-                            val reference = EnumValueReference(element, valueTextRange, value, enumType)
+                            val reference = SingleMemberReference(
+                                element,
+                                valueTextRange,
+                                value,
+                                enumType
+                            )
                             refs.add(reference)
                         }
                     }
