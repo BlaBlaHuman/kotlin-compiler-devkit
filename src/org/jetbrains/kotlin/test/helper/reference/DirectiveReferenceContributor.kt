@@ -35,21 +35,21 @@ class DirectiveReferenceContributor : PsiReferenceContributor() {
 
                         val (features, featuresRange) = match.groups[2] ?: return@let
                         regexValue.findAll(features).forEach {
-                            val (value, valueRange) = it.groups[1] ?: return@forEach
+                            val (memberShortName, valueRange) = it.groups[1] ?: return@forEach
                             val valueTextRange = TextRange(
                                 featuresRange.first + valueRange.first,
                                 featuresRange.first + valueRange.last + 1,
                             )
-                            val enumType: ClassProvider = if (name == "LANGUAGE") {
-                                ::getLanguageFeatureClasses
-                            } else {
-                                { getEnumClassesByDirective(name, it) }
+                            val classProvider: ClassProvider = when (name) {
+                                "LANGUAGE" -> ::getLanguageFeatureClasses
+                                "DIAGNOSTICS" -> ::getFirErrorClasses
+                                else -> { project -> getEnumClassesByDirective(name, project) }
                             }
                             val reference = SingleMemberReference(
                                 element,
                                 valueTextRange,
-                                value,
-                                enumType
+                                memberShortName,
+                                classProvider
                             )
                             refs.add(reference)
                         }
