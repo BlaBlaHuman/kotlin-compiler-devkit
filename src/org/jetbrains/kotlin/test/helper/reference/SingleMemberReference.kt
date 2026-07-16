@@ -9,6 +9,7 @@ import com.intellij.psi.PsiField
 import com.intellij.psi.PsiPolyVariantReference
 import com.intellij.psi.PsiReferenceBase
 import com.intellij.psi.ResolveResult
+import org.jetbrains.kotlin.asJava.unwrapped
 
 typealias ClassProvider = (Project) -> Collection<PsiClass>
 
@@ -35,7 +36,7 @@ class SingleMemberReference(
             clazz.fields
                 .filterIsInstance<PsiField>()
                 .firstOrNull { it.name == memberShortName }
-                ?.let { PsiElementResolveResult(it) }
+                ?.let { PsiElementResolveResult(it.unwrapped ?: it) }
         }.toTypedArray()
     }
 
