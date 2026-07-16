@@ -1,13 +1,11 @@
 package org.jetbrains.kotlin.test.helper.reference
 
-import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiElementResolveResult
 import com.intellij.psi.PsiPolyVariantReference
 import com.intellij.psi.PsiReferenceBase
 import com.intellij.psi.ResolveResult
-import com.intellij.psi.search.GlobalSearchScope
 import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.idea.stubindex.KotlinPropertyShortNameIndex
 import org.jetbrains.kotlin.name.ClassId
@@ -34,8 +32,6 @@ class TestDirectiveReference(
     override fun resolve(): PsiElement? {
         return multiResolve(false).singleOrNull()?.element
     }
-
-    override fun getVariants(): Array<Any> = emptyArray()
 }
 
 fun KtNamedDeclaration.isDirective(): Boolean {

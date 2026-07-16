@@ -42,6 +42,4 @@ class SingleMemberReference(
     override fun resolve(): PsiElement? {
         return multiResolve(false).singleOrNull()?.element
     }
-
-    override fun getVariants(): Array<Any> = emptyArray()
 }
