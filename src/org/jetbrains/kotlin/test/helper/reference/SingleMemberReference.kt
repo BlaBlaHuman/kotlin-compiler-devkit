@@ -10,7 +10,7 @@ import com.intellij.psi.PsiPolyVariantReference
 import com.intellij.psi.PsiReferenceBase
 import com.intellij.psi.ResolveResult
 
-typealias ClassProvider = (Project) -> List<PsiClass>
+typealias ClassProvider = (Project) -> Collection<PsiClass>
 
 /**
  * A PSI reference for resolution to a single field member inside some class

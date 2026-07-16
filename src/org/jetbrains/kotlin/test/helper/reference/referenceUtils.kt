@@ -3,7 +3,9 @@ package org.jetbrains.kotlin.test.helper.reference
 import com.intellij.openapi.project.Project
 import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.PsiClass
+import com.intellij.psi.PsiElement
 import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.psi.search.searches.ClassInheritorsSearch
 import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
 import org.jetbrains.kotlin.asJava.classes.KtLightClass
@@ -45,12 +47,25 @@ fun getEnumClassesByDirective(key: String, project: Project): List<KtLightClass>
     }
 }
 
-private const val FIR_ERRORS_FQ_NAME = "org.jetbrains.kotlin.fir.analysis.diagnostics.FirErrors"
+private const val KT_DIAGNOSTIC_CONTAINER_FQ_NAME = "org.jetbrains.kotlin.diagnostics.KtDiagnosticsContainer"
 
-fun getFirErrorClasses(project: Project): List<PsiClass> {
-    val psiFacade = JavaPsiFacade.getInstance(project)
+fun getFirErrorClasses(project: Project): Collection<PsiClass> {
+    return getInheritors(project, KT_DIAGNOSTIC_CONTAINER_FQ_NAME)
+}
+
+fun getInheritors(project: Project, fqName: String): Collection<PsiClass> {
+    val scope = GlobalSearchScope.allScope(project)
+
+    val directiveContainer = JavaPsiFacade.getInstance(project)
+        .findClass(fqName, scope)
+        ?: return emptyList()
 
     return resolvePreferringProjectScope(project) {
-        psiFacade.findClasses(FIR_ERRORS_FQ_NAME, it).toList()
+        ClassInheritorsSearch.search(directiveContainer, it, true).findAll().toList()
     }
+}
+
+fun <T : PsiElement> resolvePreferringProjectScope(project: Project, resolve: (GlobalSearchScope) -> List<T>): List<T> {
+    return resolve(GlobalSearchScope.projectScope(project))
+        .ifEmpty { resolve(GlobalSearchScope.allScope(project)) }
 }

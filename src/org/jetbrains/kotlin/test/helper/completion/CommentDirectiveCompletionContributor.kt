@@ -23,6 +23,7 @@ import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtProperty
 import org.jetbrains.kotlin.test.helper.lang.MULTIFILE_COMMENT_LINE
 import org.jetbrains.kotlin.test.helper.reference.getEnumClassesByDirective
+import org.jetbrains.kotlin.test.helper.reference.getInheritors
 import org.jetbrains.kotlin.test.helper.reference.getLanguageFeatureClasses
 import org.jetbrains.kotlin.test.helper.reference.isDirective
 
@@ -79,13 +80,7 @@ class CommentDirectiveCompletionProvider : CompletionProvider<CompletionParamete
         project: Project,
         resultSet: CompletionResultSet
     ) {
-        val scope = GlobalSearchScope.allScope(project)
-
-        val directiveContainer = JavaPsiFacade.getInstance(project)
-            .findClass(DIRECTIVES_CONTAINER_FQ_NAME, scope)
-            ?: return
-
-        val inheritors = ClassInheritorsSearch.search(directiveContainer, scope, true).findAll()
+        val inheritors = getInheritors(project, DIRECTIVES_CONTAINER_FQ_NAME)
 
         for (clazz in inheritors) {
             if (clazz !is KtLightClass) continue
@@ -106,3 +101,4 @@ class CommentDirectiveCompletionProvider : CompletionProvider<CompletionParamete
         return fileIndex.isInSourceContent(this)
     }
 }
+

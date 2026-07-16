@@ -52,7 +52,3 @@ fun KtNamedDeclaration.isDirective(): Boolean {
 private fun runCatchingClassId(fqName: String): ClassId? =
     runCatching { ClassId.topLevel(FqName(fqName)) }.getOrNull()
 
-fun <T : PsiElement> resolvePreferringProjectScope(project: Project, resolve: (GlobalSearchScope) -> List<T>): List<T> {
-    return resolve(GlobalSearchScope.projectScope(project))
-        .ifEmpty { resolve(GlobalSearchScope.allScope(project)) }
-}
