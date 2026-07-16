@@ -6,7 +6,9 @@ import com.intellij.psi.PsiElementResolveResult
 import com.intellij.psi.PsiPolyVariantReference
 import com.intellij.psi.PsiReferenceBase
 import com.intellij.psi.ResolveResult
+import com.intellij.util.ui.EDT
 import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.idea.base.analysis.api.utils.analyzeInModalWindow
 import org.jetbrains.kotlin.idea.stubindex.KotlinPropertyShortNameIndex
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
@@ -40,8 +42,14 @@ fun KtNamedDeclaration.isDirective(): Boolean {
         ?.let(::runCatchingClassId)
         ?: return false
 
-    return this is KtDeclarationWithReturnType && analyze(this) {
-        returnType.isSubtypeOf(directiveClassId)
+    return this is KtDeclarationWithReturnType && if (EDT.isCurrentThreadEdt()) {
+        analyzeInModalWindow(this, "Analyzing") {
+            returnType.isSubtypeOf(directiveClassId)
+        }
+    } else {
+        analyze(this) {
+            returnType.isSubtypeOf(directiveClassId)
+        }
     }
 }
 
