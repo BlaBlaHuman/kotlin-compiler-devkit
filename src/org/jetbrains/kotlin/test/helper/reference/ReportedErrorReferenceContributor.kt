@@ -6,6 +6,7 @@ import com.intellij.patterns.PlatformPatterns
 import com.intellij.psi.*
 import com.intellij.util.ProcessingContext
 import org.jetbrains.kotlin.test.helper.isTestDataFile
+import org.jetbrains.kotlin.test.helper.lang.MultifileTestDataTextFileImpl
 
 /**
  * [PsiReferenceContributor] that embeds references to `FirErrors` into the reported test data diagnostics.
@@ -31,8 +32,7 @@ class ReportedErrorReferenceContributor : PsiReferenceContributor() {
 
     override fun registerReferenceProviders(registrar: PsiReferenceRegistrar) {
         registrar.registerReferenceProvider(
-            // To avoid working with PSI parse errors, the matcher is run on the PsiFile text
-            PlatformPatterns.psiElement(PsiFile::class.java),
+            PlatformPatterns.psiElement(MultifileTestDataTextFileImpl::class.java),
             object : PsiReferenceProvider() {
                 override fun getReferencesByElement(
                     element: PsiElement,
