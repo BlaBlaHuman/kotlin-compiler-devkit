@@ -10,12 +10,9 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.patterns.PlatformPatterns
-import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiComment
-import com.intellij.psi.PsiEnumConstant
-import com.intellij.psi.search.GlobalSearchScope
-import com.intellij.psi.search.searches.ClassInheritorsSearch
+import com.intellij.psi.PsiField
 import com.intellij.util.ProcessingContext
 import org.jetbrains.kotlin.asJava.classes.KtLightClass
 import org.jetbrains.kotlin.idea.completion.or
@@ -23,6 +20,7 @@ import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtProperty
 import org.jetbrains.kotlin.test.helper.lang.MULTIFILE_COMMENT_LINE
 import org.jetbrains.kotlin.test.helper.reference.getEnumClassesByDirective
+import org.jetbrains.kotlin.test.helper.reference.getFirErrorClasses
 import org.jetbrains.kotlin.test.helper.reference.getInheritors
 import org.jetbrains.kotlin.test.helper.reference.getLanguageFeatureClasses
 import org.jetbrains.kotlin.test.helper.reference.isDirective
@@ -55,23 +53,26 @@ class CommentDirectiveCompletionProvider : CompletionProvider<CompletionParamete
             return
         }
 
-        val text = (parameters.position as? PsiComment)?.text
-        if (text?.startsWith("// LANGUAGE") == true) {
-            completeEnumValues(getLanguageFeatureClasses(project), resultSet)
-        } else {
-            if (text != null) {
+        // Completion should only be performed inside comments
+        val text = (parameters.position as? PsiComment)?.text ?: return
+        when {
+            text.startsWith("// LANGUAGE") ->
+                completeToFieldMembers(getLanguageFeatureClasses(project), resultSet)
+            text.startsWith("// DIAGNOSTICS") ->
+                completeToFieldMembers(getFirErrorClasses(project), resultSet)
+            else -> {
                 val result = regex.matchAt(text, 0)
                 result?.groupValues?.elementAtOrNull(1)?.let {
-                    completeEnumValues(getEnumClassesByDirective(it, project), resultSet)
+                    completeToFieldMembers(getEnumClassesByDirective(it, project), resultSet)
                     return
                 }
+                completeDirectives(project, resultSet)
             }
-            completeDirectives(project, resultSet)
         }
     }
 
-    private fun completeEnumValues(classes: List<PsiClass>, resultSet: CompletionResultSet) {
-        classes.flatMap { it.fields.filterIsInstance<PsiEnumConstant>() }
+    private fun completeToFieldMembers(classes: Collection<PsiClass>, resultSet: CompletionResultSet) {
+        classes.flatMap { it.fields.filterIsInstance<PsiField>() }
             .mapTo(mutableSetOf()) { it.name }
             .forEach { resultSet.addElement(LookupElementBuilder.create(it)) }
     }
