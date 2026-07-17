@@ -1,5 +1,6 @@
 package org.jetbrains.kotlin.test.helper.codeinsight
 
+import com.intellij.lang.Language
 import com.intellij.lang.injection.MultiHostInjector
 import com.intellij.lang.injection.MultiHostRegistrar
 import com.intellij.openapi.fileTypes.PlainTextLanguage
@@ -17,6 +18,21 @@ import org.jetbrains.kotlin.test.helper.lang.MultifileTestDataTextBlock
 class MultifileTestDataMultiHostInjector: MultiHostInjector {
     private val supportedElementTypes: List<Class<out PsiElement>> =
         listOf(MultifileTestDataFileContent::class.java, PsiComment::class.java, MultifileTestDataTextBlock::class.java)
+
+    /**
+     * Diagnostic markers (`<!DIAGNOSTIC!>` … `<!>`) are not valid code. They are excluded from the
+     * injected fragment so that the hints / resolution is calculated against the host
+     * test file instead of the injected editor.
+     *
+     * Otherwise, some features, e.g., underscore hints for `DIAGNOSTICS` references are shown incorrectly.
+     * That's because [org.jetbrains.kotlin.test.helper.reference.ReportedErrorReferenceContributor] calculates
+     * reference ranges based on the whole `.kt` test file, which contains all the inner files as well as preambles.
+     * If `<!DIAGNOSTIC!>` is injected as well, the text ranges of the reference for the highlighting
+     * are shifted to the right by the start offset of the injected fragment.
+     *
+     * This regex is used to keep `<!DIAGNOSTIC!>` … `<!>` from being injected.
+     */
+    private val diagnosticMarkerRegex = Regex("<![A-Z].*?!>|<!>")
 
     override fun getLanguagesToInject(
         registrar: MultiHostRegistrar,
@@ -37,9 +53,39 @@ class MultifileTestDataMultiHostInjector: MultiHostInjector {
             else -> null
         } ?: return
 
-        registrar.startInjecting(language)
-        registrar.addPlace(null, null, textBlock, TextRange(0, textBlock.textLength))
-        registrar.doneInjecting()
+        injectExcludingDiagnosticMarkers(registrar, textBlock, language)
+    }
+
+    /**
+     * Adds an injection place for every code segment between diagnostic markers, leaving the
+     * markers themselves as non-injected host text. See [diagnosticMarkerRegex].
+     */
+    private fun injectExcludingDiagnosticMarkers(
+        registrar: MultiHostRegistrar,
+        textBlock: MultifileTestDataTextBlock,
+        language: Language
+    ) {
+        val text = textBlock.text
+        val rangesToInject = mutableListOf<TextRange>()
+        var segmentStart = 0
+        for (marker in diagnosticMarkerRegex.findAll(text)) {
+            if (marker.range.first > segmentStart) {
+                rangesToInject.add(TextRange(segmentStart, marker.range.first))
+            }
+            segmentStart = marker.range.last + 1
+        }
+        if (segmentStart < text.length) {
+            rangesToInject.add(TextRange(segmentStart, text.length))
+        }
+
+        // If the whole file is just diagnostics, nothing should be injected
+        if (rangesToInject.isNotEmpty()) {
+            registrar.startInjecting(language)
+            for (place in rangesToInject) {
+                registrar.addPlace(null, null, textBlock, place)
+            }
+            registrar.doneInjecting()
+        }
     }
 
     private fun injectCommentsAsKotlin(
