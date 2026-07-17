@@ -34,6 +34,22 @@ class MultifileTestDataMultiHostInjector: MultiHostInjector {
      */
     private val diagnosticMarkerRegex = Regex("<![A-Z].*?!>|<!>")
 
+    /**
+     * Regex for finding `<caret_label>` markers.
+     *
+     * These markers are not real Kotlin code and thus should not be injected.
+     */
+    val caretMarkerRegex = Regex("<caret(?:_\\w+)?>")
+
+    /**
+     * Regex for finding `<expr_label>` / `</expr_label>` markers.
+     *
+     * These markers are not real Kotlin code and thus should not be injected.
+     */
+    val exprMarkerRegex = Regex("</?expr(?:_\\w+)?>")
+
+    val allMarkerRegex = listOf(diagnosticMarkerRegex, caretMarkerRegex, exprMarkerRegex)
+
     override fun getLanguagesToInject(
         registrar: MultiHostRegistrar,
         context: PsiElement
@@ -53,14 +69,14 @@ class MultifileTestDataMultiHostInjector: MultiHostInjector {
             else -> null
         } ?: return
 
-        injectExcludingDiagnosticMarkers(registrar, textBlock, language)
+        injectExcludingTestMarkers(registrar, textBlock, language)
     }
 
     /**
      * Adds an injection place for every code segment between diagnostic markers, leaving the
      * markers themselves as non-injected host text. See [diagnosticMarkerRegex].
      */
-    private fun injectExcludingDiagnosticMarkers(
+    private fun injectExcludingTestMarkers(
         registrar: MultiHostRegistrar,
         textBlock: MultifileTestDataTextBlock,
         language: Language
@@ -68,7 +84,9 @@ class MultifileTestDataMultiHostInjector: MultiHostInjector {
         val text = textBlock.text
         val rangesToInject = mutableListOf<TextRange>()
         var segmentStart = 0
-        for (marker in diagnosticMarkerRegex.findAll(text)) {
+
+        val allFoundMarkers = allMarkerRegex.flatMap { it.findAll(text) }.sortedBy { it.range.first }
+        for (marker in allFoundMarkers) {
             if (marker.range.first > segmentStart) {
                 rangesToInject.add(TextRange(segmentStart, marker.range.first))
             }
