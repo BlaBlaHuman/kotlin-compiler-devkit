@@ -71,6 +71,8 @@
 
         <lang.parserDefinition language="multifileTestData" implementationClass="org.jetbrains.kotlin.test.helper.lang.MultifileTestDataParserDefinition" />
 
+        <lang.psiStructureViewFactory language="multifileTestData" implementationClass="org.jetbrains.kotlin.test.helper.lang.MultifileTestDataStructureViewFactory" />
+
         <fileTypeOverrider implementation="org.jetbrains.kotlin.test.helper.codeinsight.MultifileTestDataFileTypeOverrider"/>
 
         <multiHostInjector implementation="org.jetbrains.kotlin.test.helper.codeinsight.MultifileTestDataMultiHostInjector"/>
