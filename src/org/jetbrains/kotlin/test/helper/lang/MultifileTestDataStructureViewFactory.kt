@@ -7,17 +7,25 @@ import com.intellij.ide.structureView.StructureViewModelBase
 import com.intellij.ide.structureView.StructureViewTreeElement
 import com.intellij.ide.structureView.TreeBasedStructureViewBuilder
 import com.intellij.ide.util.treeView.smartTree.TreeElement
+import com.intellij.lang.LanguageStructureViewBuilder
 import com.intellij.lang.PsiStructureViewFactory
 import com.intellij.navigation.ItemPresentation
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.fileTypes.FileTypeRegistry
+import com.intellij.openapi.fileTypes.PlainTextLanguage
+import com.intellij.platform.backend.navigation.NavigationRequest
 import com.intellij.psi.NavigatablePsiElement
+import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
+import com.intellij.psi.PsiFileFactory
+import com.intellij.psi.util.PsiTreeUtil
 import javax.swing.Icon
 
 /**
  * Provides the native **File Structure** popup for test data files:
  * a tree of `// MODULE:` nodes with their `// FILE:` children.
+ * Each `// FILE:` node expands into the tree structure of its content.
  * Selecting a node navigates to that directive.
  */
 class MultifileTestDataStructureViewFactory : PsiStructureViewFactory {
@@ -32,10 +40,16 @@ class MultifileTestDataStructureViewFactory : PsiStructureViewFactory {
 
 private class MultifileTestDataStructureViewModel(psiFile: MultifileTestDataTextFileImpl, editor: Editor?) :
     StructureViewModelBase(psiFile, editor, FileElement(psiFile)),
-    StructureViewModel.ElementInfoProvider {
-    override fun isAlwaysShowsPlus(element: StructureViewTreeElement?): Boolean = element is ModuleElement
+    StructureViewModel.ElementInfoProvider,
+    StructureViewModel.ExpandInfoProvider {
+
+    override fun isAlwaysShowsPlus(element: StructureViewTreeElement?): Boolean =
+        element is ModuleElement || element is ModuleFileElement
 
     override fun isAlwaysLeaf(element: StructureViewTreeElement?): Boolean = false
+
+    override fun isAutoExpand(element: StructureViewTreeElement): Boolean = true
+    override fun isSmartExpand(): Boolean = false
 }
 
 /**
@@ -55,7 +69,7 @@ private class FileElement(private val file: MultifileTestDataTextFileImpl) : Bas
                 currentModule = ModuleElement(header).also(modules::add)
             }
             entry.fileHeader?.let { header ->
-                val fileNode = ModuleFileElement(header)
+                val fileNode = ModuleFileElement(header, entry)
                 currentModule?.addFile(fileNode) ?: looseFiles.add(fileNode)
             }
         }
@@ -82,14 +96,40 @@ private class ModuleElement(private val header: MultifileTestDataModuleHeader) :
 /**
  * Test data file representation
  */
-private class ModuleFileElement(private val header: MultifileTestDataFileHeader) : BaseElement(header) {
+private class ModuleFileElement(
+    private val header: MultifileTestDataFileHeader,
+    private val entry: MultifileTestDataEntry,
+) : BaseElement(header) {
+    private val fileChildren: Array<TreeElement> by lazy { buildDelegatedChildren() }
+
     override fun getPresentation(): ItemPresentation {
         val fileName = header.fileName.ifBlank { "<file>" }
         val icon = FileTypeRegistry.getInstance().getFileTypeByFileName(fileName).icon ?: AllIcons.FileTypes.Any_type
         return MultifilePresentation(fileName, icon)
     }
 
-    override fun getChildren(): Array<TreeElement> = TreeElement.EMPTY_ARRAY
+    override fun getChildren(): Array<TreeElement> = fileChildren
+
+    private fun buildDelegatedChildren(): Array<TreeElement> {
+        val content = entry.content ?: return TreeElement.EMPTY_ARRAY
+        val textBlock = PsiTreeUtil.findChildOfType(content, MultifileTestDataTextBlock::class.java)
+            ?: return TreeElement.EMPTY_ARRAY
+        val text = textBlock.text.ifEmpty { return TreeElement.EMPTY_ARRAY }
+
+        val language =
+            header.injectedLanguage.takeUnless { it == PlainTextLanguage.INSTANCE } ?: return TreeElement.EMPTY_ARRAY
+        val standalone = PsiFileFactory.getInstance(header.project)
+            .createFileFromText(header.fileName.ifBlank { "<file>" }, language, text) ?: return TreeElement.EMPTY_ARRAY
+        val builder = LanguageStructureViewBuilder.getInstance().getStructureViewBuilder(standalone)
+                as? TreeBasedStructureViewBuilder ?: return TreeElement.EMPTY_ARRAY
+
+        val model = builder.createStructureViewModel(null)
+        val hostFile = header.containingFile ?: return TreeElement.EMPTY_ARRAY
+        val baseOffset = textBlock.textRange.startOffset
+        return model.root.children.remapTo(baseOffset, hostFile).also {
+            model.dispose()
+        }
+    }
 }
 
 private abstract class BaseElement(private val element: NavigatablePsiElement) : StructureViewTreeElement {
@@ -103,6 +143,41 @@ private abstract class BaseElement(private val element: NavigatablePsiElement) :
 
     override fun canNavigateToSource(): Boolean = element.canNavigateToSource()
 }
+
+/**
+ * Wraps injected structure elements (whose PSI lives in a standalone in-memory file) so navigation targets
+ * the corresponding offset in the physical test data [hostFile].
+ */
+private class InjectedLanguageElement(
+    private val delegate: StructureViewTreeElement,
+    private val baseOffset: Int,
+    private val hostFile: PsiFile,
+) : StructureViewTreeElement by delegate {
+    private val remappedChildren = delegate.children.remapTo(baseOffset, hostFile)
+
+    override fun getChildren(): Array<TreeElement> = remappedChildren
+
+    @Suppress("UnstableApiUsage")
+    override fun navigationRequest(): NavigationRequest? {
+        return delegate.navigationRequest()
+    }
+
+    override fun navigate(requestFocus: Boolean) {
+        val psi = delegate.value as? PsiElement ?: return
+        val virtualFile = hostFile.virtualFile ?: return
+        OpenFileDescriptor(hostFile.project, virtualFile, baseOffset + psi.textOffset).navigate(requestFocus)
+    }
+
+    override fun canNavigate(): Boolean = delegate.value is PsiElement && hostFile.virtualFile != null
+    override fun canNavigateToSource(): Boolean = canNavigate()
+}
+
+private fun Array<TreeElement>.remapTo(baseOffset: Int, hostFile: PsiFile): Array<TreeElement> =
+    mapNotNull {
+        (it as? StructureViewTreeElement)?.let { element ->
+            InjectedLanguageElement(element, baseOffset, hostFile)
+        }
+    }.toTypedArray()
 
 private class MultifilePresentation(private val text: String, private val icon: Icon?) : ItemPresentation {
     override fun getPresentableText(): String = text
