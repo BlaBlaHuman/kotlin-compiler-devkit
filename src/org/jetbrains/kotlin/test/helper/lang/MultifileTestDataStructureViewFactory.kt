@@ -9,18 +9,17 @@ import com.intellij.ide.structureView.TreeBasedStructureViewBuilder
 import com.intellij.ide.util.treeView.smartTree.TreeElement
 import com.intellij.lang.LanguageStructureViewBuilder
 import com.intellij.lang.PsiStructureViewFactory
+import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.navigation.ItemPresentation
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.fileTypes.FileTypeRegistry
-import com.intellij.openapi.fileTypes.PlainTextLanguage
 import com.intellij.platform.backend.navigation.NavigationRequest
 import com.intellij.psi.NavigatablePsiElement
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiFileFactory
 import com.intellij.psi.util.PsiTreeUtil
-import org.jetbrains.kotlin.idea.KotlinLanguage
 import javax.swing.Icon
 
 /**
@@ -126,23 +125,42 @@ private class ModuleFileElement(
 
     override fun getChildren(): Array<TreeElement> = fileChildren
 
+    /**
+     * Builds a structure view tree for the content of this [ModuleFileElement].
+     *
+     * It is done by retrieving the injected code text and building a view from it.
+     * The injected code is needed here as it doesn't contain any test data markers.
+     * Otherwise, if a marker is placed right on some declaration, the view might be parsed incorrectly.
+     */
     private fun buildDelegatedChildren(): Array<TreeElement> {
         val content = entry.content ?: return TreeElement.EMPTY_ARRAY
         val textBlock = PsiTreeUtil.findChildOfType(content, MultifileTestDataTextBlock::class.java)
             ?: return TreeElement.EMPTY_ARRAY
-        val text = textBlock.text.ifEmpty { return TreeElement.EMPTY_ARRAY }
+        val hostFile = entry.containingFile ?: return TreeElement.EMPTY_ARRAY
 
-        val language =
-            entry.fileHeader?.injectedLanguage.takeUnless { it == PlainTextLanguage.INSTANCE } ?: KotlinLanguage.INSTANCE
-        val standalone = PsiFileFactory.getInstance(entry.project)
-            .createFileFromText(getDisplayName(), language, text) ?: return TreeElement.EMPTY_ARRAY
-        val builder = LanguageStructureViewBuilder.getInstance().getStructureViewBuilder(standalone)
+        val injectionManager = InjectedLanguageManager.getInstance(entry.project)
+        // Injected file represents pure injected test data text,
+        // i.e., it doesn't contain test data markers as they are not injected
+        val injectedFile = injectionManager.getInjectedPsiFiles(textBlock)
+            ?.firstOrNull()?.first as? PsiFile ?: return TreeElement.EMPTY_ARRAY
+
+        // Standalone copy is needed to turn `KtBlockCodeFragment` into a regular `KtFile`.
+        // Otherwise, all contained declarations are considered to be local, so no structure is produced
+        val standaloneCopy = PsiFileFactory.getInstance(entry.project)
+            .createFileFromText(injectedFile.name, injectedFile.language, injectedFile.text)
+            ?: return TreeElement.EMPTY_ARRAY
+
+        val builder = LanguageStructureViewBuilder.getInstance().getStructureViewBuilder(standaloneCopy)
                 as? TreeBasedStructureViewBuilder ?: return TreeElement.EMPTY_ARRAY
 
         val model = builder.createStructureViewModel(null)
-        val hostFile = entry.containingFile ?: return TreeElement.EMPTY_ARRAY
-        val baseOffset = textBlock.textRange.startOffset
-        return model.root.children.remapTo(baseOffset, hostFile).also {
+        return try {
+            model.root.children.remapTo(hostFile) { psi ->
+                // Offset needs to be calculated dynamically for each element as the view is built over the injected text
+                // which skips test data markers.
+                injectionManager.injectedToHost(injectedFile, psi.textOffset)
+            }
+        } finally {
             model.dispose()
         }
     }
@@ -166,10 +184,10 @@ private abstract class BaseElement(private val element: NavigatablePsiElement) :
  */
 private class InjectedLanguageElement(
     private val delegate: StructureViewTreeElement,
-    private val baseOffset: Int,
     private val hostFile: PsiFile,
+    private val offsetInHost: (PsiElement) -> Int,
 ) : StructureViewTreeElement by delegate {
-    private val remappedChildren = delegate.children.remapTo(baseOffset, hostFile)
+    private val remappedChildren = delegate.children.remapTo(hostFile, offsetInHost)
 
     override fun getChildren(): Array<TreeElement> = remappedChildren
 
@@ -181,17 +199,24 @@ private class InjectedLanguageElement(
     override fun navigate(requestFocus: Boolean) {
         val psi = delegate.value as? PsiElement ?: return
         val virtualFile = hostFile.virtualFile ?: return
-        OpenFileDescriptor(hostFile.project, virtualFile, baseOffset + psi.textOffset).navigate(requestFocus)
+        OpenFileDescriptor(hostFile.project, virtualFile, offsetInHost(psi)).navigate(requestFocus)
     }
 
     override fun canNavigate(): Boolean = delegate.value is PsiElement && hostFile.virtualFile != null
     override fun canNavigateToSource(): Boolean = canNavigate()
 }
 
-private fun Array<TreeElement>.remapTo(baseOffset: Int, hostFile: PsiFile): Array<TreeElement> =
+/**
+ * Wraps [TreeElement] from [this] into [InjectedLanguageElement] with proper offset provided by [offsetInHost].
+ *
+ * @param hostFile the physical test file
+ * @param [offsetInHost] calculator that provides offset of each injected tree element in the [hostFile].
+ *        Used to handle various navigation requests.
+ */
+private fun Array<TreeElement>.remapTo(hostFile: PsiFile, offsetInHost: (PsiElement) -> Int): Array<TreeElement> =
     mapNotNull {
         (it as? StructureViewTreeElement)?.let { element ->
-            InjectedLanguageElement(element, baseOffset, hostFile)
+            InjectedLanguageElement(element, hostFile, offsetInHost)
         }
     }.toTypedArray()
 
