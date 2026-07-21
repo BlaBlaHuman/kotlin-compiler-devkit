@@ -20,6 +20,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiFileFactory
 import com.intellij.psi.util.PsiTreeUtil
+import org.jetbrains.kotlin.idea.KotlinLanguage
 import javax.swing.Icon
 
 /**
@@ -68,10 +69,12 @@ private class FileElement(private val file: MultifileTestDataTextFileImpl) : Bas
             entry.moduleHeader?.let { header ->
                 currentModule = ModuleElement(header).also(modules::add)
             }
-            entry.fileHeader?.let { header ->
-                val fileNode = ModuleFileElement(header, entry)
-                currentModule?.addFile(fileNode) ?: looseFiles.add(fileNode)
-            }
+            /**
+             * Every single entry is unconditionally added as a separate file node.
+             * That's because test data files don't always have proper `// FILE` / `// MODULE` directives.
+             */
+            val fileNode = ModuleFileElement(currentModule?.header, entry)
+            currentModule?.addFile(fileNode) ?: looseFiles.add(fileNode)
         }
         return (looseFiles + modules).toTypedArray()
     }
@@ -80,7 +83,7 @@ private class FileElement(private val file: MultifileTestDataTextFileImpl) : Bas
 /**
  * Test data module representation
  */
-private class ModuleElement(private val header: MultifileTestDataModuleHeader) : BaseElement(header) {
+private class ModuleElement(val header: MultifileTestDataModuleHeader) : BaseElement(header) {
     private val files = mutableListOf<TreeElement>()
 
     fun addFile(file: ModuleFileElement) {
@@ -97,13 +100,26 @@ private class ModuleElement(private val header: MultifileTestDataModuleHeader) :
  * Test data file representation
  */
 private class ModuleFileElement(
-    private val header: MultifileTestDataFileHeader,
+    private val containingModuleHeader: MultifileTestDataModuleHeader?,
     private val entry: MultifileTestDataEntry,
-) : BaseElement(header) {
+) : BaseElement(entry) {
     private val fileChildren: Array<TreeElement> by lazy { buildDelegatedChildren() }
 
+    /**
+     * Used to show the test data file name in the structure view tree.
+     * Handles various [entry] cases:
+     * - If [entry] has a proper `// FILE` header, the name is taken from there
+     * - If [entry] is placed right under some `// MODULE` directive, the module name is taken with `.kt` extension
+     * - If [entry] doesn't have any `// MODULE` / `// FILE` header, the test file name is taken
+     */
+    private fun getDisplayName(): String {
+        return entry.fileHeader?.fileName?.takeIf { it.isNotBlank() }
+            ?: containingModuleHeader?.moduleName?.plus(".kt")
+            ?: entry.containingFile.name
+    }
+
     override fun getPresentation(): ItemPresentation {
-        val fileName = header.fileName.ifBlank { "<file>" }
+        val fileName = getDisplayName()
         val icon = FileTypeRegistry.getInstance().getFileTypeByFileName(fileName).icon ?: AllIcons.FileTypes.Any_type
         return MultifilePresentation(fileName, icon)
     }
@@ -117,14 +133,14 @@ private class ModuleFileElement(
         val text = textBlock.text.ifEmpty { return TreeElement.EMPTY_ARRAY }
 
         val language =
-            header.injectedLanguage.takeUnless { it == PlainTextLanguage.INSTANCE } ?: return TreeElement.EMPTY_ARRAY
-        val standalone = PsiFileFactory.getInstance(header.project)
-            .createFileFromText(header.fileName.ifBlank { "<file>" }, language, text) ?: return TreeElement.EMPTY_ARRAY
+            entry.fileHeader?.injectedLanguage.takeUnless { it == PlainTextLanguage.INSTANCE } ?: KotlinLanguage.INSTANCE
+        val standalone = PsiFileFactory.getInstance(entry.project)
+            .createFileFromText(getDisplayName(), language, text) ?: return TreeElement.EMPTY_ARRAY
         val builder = LanguageStructureViewBuilder.getInstance().getStructureViewBuilder(standalone)
                 as? TreeBasedStructureViewBuilder ?: return TreeElement.EMPTY_ARRAY
 
         val model = builder.createStructureViewModel(null)
-        val hostFile = header.containingFile ?: return TreeElement.EMPTY_ARRAY
+        val hostFile = entry.containingFile ?: return TreeElement.EMPTY_ARRAY
         val baseOffset = textBlock.textRange.startOffset
         return model.root.children.remapTo(baseOffset, hostFile).also {
             model.dispose()
