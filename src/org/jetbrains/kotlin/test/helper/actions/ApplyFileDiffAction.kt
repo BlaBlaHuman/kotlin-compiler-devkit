@@ -54,6 +54,10 @@ internal class ApplyFileDiffAction : DumbAwareAction() {
 
 typealias CancellationCallback = () -> Unit
 
+object NoopCancellationCallback : CancellationCallback {
+    override fun invoke() {}
+}
+
 context(scope: CoroutineScope)
 suspend fun runTestAndApplyDiffLoop(
     project: Project,

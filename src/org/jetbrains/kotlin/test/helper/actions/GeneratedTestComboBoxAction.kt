@@ -12,6 +12,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.service
@@ -30,7 +31,9 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.util.minimumWidth
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.ui.JBUI
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.jetbrains.kotlin.test.helper.TestDataPathsConfiguration
 import org.jetbrains.kotlin.test.helper.buildRunnerLabel
 import org.jetbrains.kotlin.test.helper.gradle.GradleRunConfig
@@ -255,18 +258,27 @@ class GeneratedTestComboBoxAction(val baseEditor: TextEditor) : AbstractComboBox
     private fun runAndApply(e: AnActionEvent, className: String) {
         val project = e.project ?: return
         val service = project.service<TestDataRunnerService>()
+        val hasGradleRunner = project.hasGradleTestRunner(baseEditor.file)
+        val currentIndex = state.currentChosenGroup
         service.scope.launch {
             withBackgroundProgress(project, "Running Selected & Applying Diffs") {
                 reportSequentialProgress { reporter ->
                     reporter.indeterminateStep("Running Selected")
 
                     runTestAndApplyDiffLoop(project) {
-                        service.doCollectAndRunAllTests(
-                            e,
-                            listOf(baseEditor.file),
-                            debug = false,
-                            filterByClass = className
-                        )
+                        if (hasGradleRunner) {
+                            service.doCollectAndRunAllTests(
+                                e,
+                                listOf(baseEditor.file),
+                                debug = false,
+                                filterByClass = className
+                            )
+                        } else {
+                            withContext(Dispatchers.EDT) {
+                                state.executeRunConfigAction(e, currentIndex, false)
+                            }
+                            NoopCancellationCallback
+                        }
                     }
                 }
             }
@@ -288,7 +300,6 @@ class GeneratedTestComboBoxAction(val baseEditor: TextEditor) : AbstractComboBox
         override fun actionPerformed(e: AnActionEvent) {
             state.executeRunConfigAction(e, state.currentChosenGroup, debug)
         }
-
     }
 
     inner class RunSelectedAndApplyAction : AbstractRunAction("Run Selected && Apply Diffs", AllIcons.Diff.ApplyNotConflicts) {
