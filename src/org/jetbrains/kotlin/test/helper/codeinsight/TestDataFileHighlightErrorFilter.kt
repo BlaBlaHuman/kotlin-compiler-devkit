@@ -4,6 +4,7 @@ import com.intellij.codeInsight.daemon.impl.HighlightInfo
 import com.intellij.codeInsight.daemon.impl.HighlightInfoFilter
 import com.intellij.codeInsight.highlighting.HighlightErrorFilter
 import com.intellij.injected.editor.VirtualFileWindow
+import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.psi.PsiErrorElement
 import com.intellij.psi.PsiFile
 import org.jetbrains.kotlin.test.helper.TestDataPathsConfiguration
@@ -24,7 +25,7 @@ class TestDataFileHighlightErrorFilter : HighlightErrorFilter() {
 
 class TestDataFileHighlightInfoFilter : HighlightInfoFilter {
     override fun accept(highlightInfo: HighlightInfo, psiFile: PsiFile?): Boolean {
-        return psiFile == null || !psiFile.isInjectionInTestFile()
+        return psiFile == null || !psiFile.isInjectionInTestFile() || highlightInfo.severity <= HighlightSeverity.TEXT_ATTRIBUTES
     }
 }
 
