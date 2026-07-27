@@ -2,8 +2,6 @@
 
 # Changelog
 
-## [Unreleased]
-
 ## 1.0.113
 - Migrate test data manager actions to the `checkTestData` / `updateTestData` Gradle tasks (options passed as `-P` properties). The removed `manageTestDataGlobally` task is no longer used.
 
