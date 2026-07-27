@@ -1,4 +1,7 @@
 <idea-plugin>
+    <id>org.jetbrains.kotlin.compiler.devkit</id>
+    <name>Kotlin Compiler DevKit</name>
+    <vendor>JetBrains</vendor>
     <!-- Product and plugin compatibility requirements -->
     <!-- https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform </depends>
@@ -94,7 +97,6 @@
     </extensions>
 
     <extensions defaultExtensionNs="org.jetbrains.kotlin">
-        <supportsKotlinK2Mode/>
         <supportsKotlinPluginMode supportsK2="true" supportsK1="true"/>
     </extensions>
 

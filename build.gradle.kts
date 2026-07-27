@@ -1,65 +1,42 @@
-import io.gitlab.arturbosch.detekt.Detekt
+import org.gradle.kotlin.dsl.withType
 import org.jetbrains.changelog.Changelog
 import org.jetbrains.changelog.markdownToHTML
-import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
+import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
-val pluginGroup: String by extra
-val pluginVersion: String by extra
-val pluginName: String by extra
-val pluginId: String by extra
-val platformPlugins: String by extra
-val pluginSinceBuild: String by extra
-val pluginUntilBuild: String by extra
-val pluginVerifierIdeVersions: String by extra
-val publishingToken: String by extra
+val pluginVersion = extra["pluginVersion"] as String
+val publishingToken = extra["publishingToken"] as String
 
 plugins {
-    // Java support
-    id("java")
-    // Kotlin support
-    id("org.jetbrains.kotlin.jvm") version "2.2.0"
-    // gradle-intellij-plugin - read more: https://github.com/JetBrains/gradle-intellij-plugin
-    id("org.jetbrains.intellij.platform") version "2.11.0"
-    // gradle-changelog-plugin - read more: https://github.com/JetBrains/gradle-changelog-plugin
-    id("org.jetbrains.changelog") version "2.2.1"
-    // detekt linter - read more: https://detekt.github.io/detekt/gradle.html
-    id("io.gitlab.arturbosch.detekt") version "1.23.7"
-    // ktlint linter - read more: https://github.com/JLLeitschuh/ktlint-gradle
-    id("org.jlleitschuh.gradle.ktlint") version "12.1.1"
+    id("org.jetbrains.kotlin.jvm")
+    id("org.jetbrains.intellij.platform")
+    id("org.jetbrains.changelog")
 }
 
-group = pluginGroup
-version = pluginVersion
-
-// Configure project's dependencies
-repositories {
-    mavenCentral()
-    intellijPlatform {
-        defaultRepositories()
-    }
-}
+// Read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin.html
 dependencies {
-    detektPlugins("io.gitlab.arturbosch.detekt:detekt-formatting:1.19.0")
+    // IntelliJ Platform Gradle Plugin Dependencies Extension - read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-dependencies-extension.html
     intellijPlatform {
-        intellijIdea("2025.3")
-        bundledPlugins(platformPlugins.split(',').map(String::trim).filter(String::isNotEmpty))
-        pluginVerifier()
+        intellijIdea("2025.3.5")
+        testFramework(TestFrameworkType.Platform)
+
+        // Add plugin dependencies for compilation here:
+        bundledPlugin("com.intellij.gradle")
+        bundledPlugin("org.jetbrains.kotlin")
+        bundledPlugin("com.intellij.java")
+        bundledPlugin("org.jetbrains.plugins.gradle")
+        bundledPlugin("Git4Idea")
     }
+
+    testImplementation(libs.junit)
     testImplementation(kotlin("test"))
 }
 
-// Configure gradle-intellij-plugin plugin.
-// Read more: https://github.com/JetBrains/gradle-intellij-plugin
 intellijPlatform {
     pluginConfiguration {
-        id = pluginId
-        name = pluginName
         version = pluginVersion
-        vendor {
-            name = "JetBrains"
-        }
+
         changeNotes = provider { changelog.renderItem(changelog.getLatest(), Changelog.OutputType.HTML) }
 
         // Extract the <!-- Plugin description --> section from README.md and provide for the plugin's manifest
@@ -82,47 +59,17 @@ intellijPlatform {
                 .run { markdownToHTML(this) }
 
         ideaVersion {
-            sinceBuild = pluginSinceBuild
-            untilBuild = pluginUntilBuild
+            untilBuild = provider { null }
         }
     }
 
     pluginVerification {
-        ides {
-            pluginVerifierIdeVersions
-                .split(',')
-                .map(String::trim)
-                .filter(String::isNotEmpty)
-                .forEach { ideVersion ->
-                    create(IntelliJPlatformType.IntellijIdea, ideVersion)
-                }
-        }
         freeArgs = listOf("-mute", "ForbiddenPluginIdPrefix") // The 'org.jetbrains' prefix is normally not allowed
     }
 
     publishing {
         token = publishingToken
     }
-}
-
-// Configure gradle-changelog-plugin plugin.
-// Read more: https://github.com/JetBrains/gradle-changelog-plugin
-changelog {
-    version.set(pluginVersion)
-    groups.set(emptyList())
-}
-
-// Configure detekt plugin.
-// Read more: https://detekt.github.io/detekt/kotlindsl.html
-detekt {
-    config.setFrom(files("./detekt-config.yml"))
-    buildUponDefaultConfig = true
-}
-
-// Configure ktlint plugin.
-// Read more: https://pinterest.github.io/ktlint/latest/
-ktlint {
-    version.set("1.8.0")
 }
 
 tasks {
@@ -132,21 +79,7 @@ tasks {
     }
     withType<KotlinCompile> {
         compilerOptions.jvmTarget.set(JvmTarget.JVM_21)
-        compilerOptions.freeCompilerArgs.addAll(
-            listOf(
-                "-opt-in=kotlin.RequiresOptIn",
-                "-Xcontext-parameters",
-            ),
-        )
-    }
-
-    withType<Detekt> {
-        jvmTarget = "21"
-        reports {
-            html.required.set(false)
-            xml.required.set(false)
-            txt.required.set(false)
-        }
+        compilerOptions.freeCompilerArgs.add("-Xcontext-parameters")
     }
 }
 
