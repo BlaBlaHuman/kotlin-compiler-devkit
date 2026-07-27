@@ -1,5 +1,4 @@
 import org.gradle.kotlin.dsl.withType
-import org.jetbrains.changelog.Changelog
 import org.jetbrains.changelog.markdownToHTML
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -36,8 +35,6 @@ dependencies {
 intellijPlatform {
     pluginConfiguration {
         version = pluginVersion
-
-        changeNotes = provider { changelog.renderItem(changelog.getLatest(), Changelog.OutputType.HTML) }
 
         // Extract the <!-- Plugin description --> section from README.md and provide for the plugin's manifest
         description =
