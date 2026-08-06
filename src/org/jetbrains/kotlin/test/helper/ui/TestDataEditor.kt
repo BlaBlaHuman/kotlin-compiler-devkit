@@ -13,12 +13,14 @@ import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.event.VisibleAreaEvent
+import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorLocation
 import com.intellij.openapi.fileEditor.FileEditorState
 import com.intellij.openapi.fileEditor.FileEditorStateLevel
 import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.Pair
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.vfs.*
@@ -65,7 +67,7 @@ class TestDataEditor(
         JBSplitter(isVerticalSplit, 0.5f, 0.15f, 0.85f).apply {
             splitterProportionKey = splitterProportionKey
             firstComponent = baseEditor.component
-            secondComponent = previewEditorState.currentPreview.component
+            secondComponent = previewEditorState.currentPreview.componentWithOwnFileEditorData()
             dividerWidth = 3
         }
     }
@@ -126,7 +128,8 @@ class TestDataEditor(
         } else {
             EditorViewMode.BaseAndAdditionalEditor
         }
-        splitter.secondComponent = previewEditorState.currentPreview.component
+        val previewComponent = previewEditorState.currentPreview.componentWithOwnFileEditorData()
+        splitter.secondComponent = previewComponent
         editorViewMode = viewMode
         PropertiesComponent.getInstance()
             .setValue(
@@ -134,8 +137,48 @@ class TestDataEditor(
                 previewEditorState.currentPreview.file.allExtensions
             )
         baseEditor.component.isVisible = true
-        previewEditorState.currentPreview.component.isVisible = editorViewMode == EditorViewMode.BaseAndAdditionalEditor
+        previewComponent.isVisible = editorViewMode == EditorViewMode.BaseAndAdditionalEditor
         updateScrollSync()
+    }
+
+    /**
+     * This additional handling is needed for the proper work of the split view feature.
+     *
+     * [componentWithOwnFileEditorData] should be called on the [FileEditor] of the second file
+     * that is being opened on each [updatePreviewEditor].
+     * Otherwise, various anomalies would be produced when trying to interact with the second file.
+     * Namely, various context actions called with the second file in focus are applied to the main file instead.
+     * E.g., `Show File Structure` action would fire on the main file.
+     * Additionally, editing the second file and then calling `CMD+Z` would result in a confirmation popup.
+     *
+     * An action retrieves the editor to use through the [PlatformCoreDataKeys.FILE_EDITOR] key,
+     * and the platform composes it by walking the Swing components from the editor tab
+     * down to the focused component and asking each [UiDataProvider] on the path for the data.
+     * Every next component may override what the previous ones provided, so the deepest one wins.
+     *
+     * Both files of the split have their own [FileEditor], but only the tab implements [UiDataProvider] and provides
+     * that key. It answers with the [FileEditor] of the whole tab, which is this [TestDataEditor].
+     * [TestDataEditor] owns both parts of the split and reports [baseEditor] for the main file as its editor.
+     *
+     * The fix is to add a lightweight wrapper for the second file's editor that overrides [PlatformCoreDataKeys.FILE_EDITOR].
+     *
+     * └── splitter
+     *     ├── main editor's component
+     *     └── wrapper panel ← [componentWithOwnFileEditorData] wrapper, answers "FILE_EDITOR = second editor"
+     *         └── second editor's component
+     *
+     * The wrapper is cached using [WRAPPED_COMPONENT_KEY] user data key on [this].
+     */
+    private fun FileEditor.componentWithOwnFileEditorData(): JComponent {
+        getUserData(WRAPPED_COMPONENT_KEY)?.let { return it }
+        return UiDataProvider.wrapComponent(component) { sink ->
+            val ownFile = file
+            if (isValid && ownFile?.isValid == true) {
+                sink[PlatformCoreDataKeys.FILE_EDITOR] = this
+                sink[CommonDataKeys.VIRTUAL_FILE] = ownFile
+                sink[CommonDataKeys.VIRTUAL_FILE_ARRAY] = arrayOf(ownFile)
+            }
+        }.also { putUserData(WRAPPED_COMPONENT_KEY, it) }
     }
 
     private fun updateScrollSync() {
@@ -476,6 +519,8 @@ class TestDataEditor(
     }
 
     companion object {
+        private val WRAPPED_COMPONENT_KEY = Key.create<JComponent>("TestDataEditor.wrappedPreviewComponent")
+
         @JvmStatic
         val SPLIT_ORIENTATION_TOPIC: Topic<SplitOrientationListener> = Topic.create(
             "TestDataEditor split orientation",
